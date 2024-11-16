@@ -207,7 +207,7 @@ def main(args):
 
 if __name__ == '__main__':
     args = Args(num_narrowings=4,
-                loss='mse',
+                loss='l1',
                 unet_channels_first=128,
                 unet_use_camera_in=False,
                 dataset='datasets/chest_separate',
@@ -217,5 +217,5 @@ if __name__ == '__main__':
                 lr=0.0002,
                 cosine_schedule=True,
                 device='mps',
-                use_sigmoid=False)
+                use_sigmoid=True)
     main(args)
