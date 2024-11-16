@@ -168,6 +168,10 @@ def main(args):
         loss = torch.nn.MSELoss()
     elif args.loss == 'l1':
         loss = torch.nn.L1Loss()
+    elif args.loss == 'mse_perceptual':
+      mse_loss = torch.nn.MSELoss()
+      perceptual_loss = PerceptualLoss()
+      loss = lambda output, target: mse_loss(output, target) + perceptual_loss(output, target)
     else:
         raise ValueError(f"Invalid loss function: {args.loss}")
     
@@ -206,12 +210,12 @@ def main(args):
     torchvision.utils.save_image(sample[0][0:8], true_path)
 
 if __name__ == '__main__':
-    args = Args(num_narrowings=4,
-                loss='l1',
+    args = Args(num_narrowings=6,
+                loss='mse',
                 unet_channels_first=128,
                 unet_use_camera_in=False,
                 dataset='datasets/chest_separate',
-                pairwise_dataset_size=1000,
+                pairwise_dataset_size=2000,
                 batch_size=16,
                 epochs=2,
                 lr=0.0002,
