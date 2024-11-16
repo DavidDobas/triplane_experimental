@@ -132,7 +132,10 @@ class Model(TrainableModule):
         self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in)
     def forward(self, images, c_i, c_j):
         images = self.unet(images, c_i, c_j)
-        images = torch.sigmoid(images)
+        if args.use_sigmoid:
+            images = torch.sigmoid(images)
+        else:
+            images = images.clamp(0, 1)
         return images
 
 
@@ -198,7 +201,9 @@ def main(args):
     with torch.no_grad():
         predictions = model.predict(dev, as_numpy=False)
     prediction_path = os.path.join(args.logdir, 'prediction.png')
-    torchvision.utils.save_image(predictions[0][0], prediction_path)
+    torchvision.utils.save_image(predictions[0][0:8], prediction_path)
+    true_path = os.path.join(args.logdir, 'true.png')
+    torchvision.utils.save_image(sample[0][0:8], true_path)
 
 if __name__ == '__main__':
     args = Args(num_narrowings=4,
@@ -206,10 +211,11 @@ if __name__ == '__main__':
                 unet_channels_first=128,
                 unet_use_camera_in=False,
                 dataset='datasets/chest_separate',
-                pairwise_dataset_size=2000,
+                pairwise_dataset_size=1000,
                 batch_size=16,
-                epochs=3,
+                epochs=2,
                 lr=0.0002,
                 cosine_schedule=True,
-                device='mps')
+                device='mps',
+                use_sigmoid=False)
     main(args)
