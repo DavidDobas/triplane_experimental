@@ -209,17 +209,21 @@ def main(args):
     true_path = os.path.join(args.logdir, 'true.png')
     torchvision.utils.save_image(sample[0][0:8], true_path)
 
+    # Save the model
+    model_path = os.path.join(args.logdir, 'model.pt')
+    torch.save(model, model_path)
+
 if __name__ == '__main__':
     args = Args(num_narrowings=6,
                 loss='mse',
                 unet_channels_first=128,
                 unet_use_camera_in=False,
                 dataset='datasets/chest_separate',
-                pairwise_dataset_size=2000,
+                pairwise_dataset_size=None,
                 batch_size=16,
-                epochs=2,
+                epochs=10,
                 lr=0.0002,
                 cosine_schedule=True,
-                device='mps',
+                device='cuda',
                 use_sigmoid=True)
     main(args)
