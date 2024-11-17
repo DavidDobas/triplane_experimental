@@ -152,13 +152,13 @@ def main(args):
 
     # dataset_images = ImageFolderDataset(path=args.dataset, use_labels=True, max_size=None, xflip=False)
     # dataset_pairs = PairwiseImageDataset(dataset_images, size=args.pairwise_dataset_size)
-    dataset_pairs = CombinedDataset(args.dataset, args.pairwise_dataset_size)
+    dataset_pairs_train = CombinedDataset(args.dataset, args.pairwise_dataset_size)
+    dataset_pairs_dev = CombinedDataset(args.dataset_dev, args.pairwise_dataset_size)
 
     generator = torch.Generator().manual_seed(42)
-    train, dev = torch.utils.data.random_split(dataset_pairs, [int(0.9*len(dataset_pairs)), len(dataset_pairs) - int(0.9*len(dataset_pairs))], generator=generator)
 
-    train = torch.utils.data.DataLoader(train, batch_size=args.batch_size, shuffle=True)
-    dev = torch.utils.data.DataLoader(dev, batch_size=args.batch_size)
+    train = torch.utils.data.DataLoader(dataset_pairs_train, batch_size=args.batch_size, shuffle=True)
+    dev = torch.utils.data.DataLoader(dataset_pairs_dev, batch_size=args.batch_size)
 
     if args.loss == 'mse_ssim':
         loss = MSESSIMLoss()
@@ -219,6 +219,7 @@ if __name__ == '__main__':
                 unet_channels_first=128,
                 unet_use_camera_in=False,
                 dataset='datasets/chest_separate',
+                dataset_dev='datasets/chest_separate_dev',
                 pairwise_dataset_size=None,
                 batch_size=16,
                 epochs=10,
