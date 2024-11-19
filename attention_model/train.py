@@ -152,8 +152,8 @@ def main(args):
 
     # dataset_images = ImageFolderDataset(path=args.dataset, use_labels=True, max_size=None, xflip=False)
     # dataset_pairs = PairwiseImageDataset(dataset_images, size=args.pairwise_dataset_size)
-    dataset_pairs_train = CombinedDataset(args.dataset, args.pairwise_dataset_size)
-    dataset_pairs_dev = CombinedDataset(args.dataset_dev, args.pairwise_dataset_size)
+    dataset_pairs_train = CombinedDataset(args.dataset, args.pairwise_dataset_size, augment=args.augment)
+    dataset_pairs_dev = CombinedDataset(args.dataset_dev, args.pairwise_dataset_size, augment=False)
 
     generator = torch.Generator().manual_seed(42)
 
@@ -226,5 +226,6 @@ if __name__ == '__main__':
                 lr=0.0002,
                 cosine_schedule=True,
                 device='cuda',
-                use_sigmoid=True)
+                use_sigmoid=True,
+                augment=True)
     main(args)

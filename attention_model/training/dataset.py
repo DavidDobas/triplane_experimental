@@ -18,6 +18,8 @@ import json
 import torch
 import dnnlib
 import random
+import torchvision.transforms as transforms
+from torchvision.transforms import functional as TF
 try:
     import pyspng
 except ImportError:
@@ -166,6 +168,7 @@ class ImageFolderDataset(Dataset):
     def __init__(self,
         path,                   # Path to directory or zip.
         resolution      = None, # Ensure specific resolution, None = highest available.
+        augment         = False, # Enable data augmentation
         **super_kwargs,         # Additional arguments for the Dataset base class.
     ):
         self._path = path
@@ -189,7 +192,38 @@ class ImageFolderDataset(Dataset):
         raw_shape = [len(self._image_fnames)] + list(self._load_raw_image(0).shape)
         if resolution is not None and (raw_shape[2] != resolution or raw_shape[3] != resolution):
             raise IOError('Image files do not match the specified resolution')
+        
+        if augment:
+            self.transform = transforms.Compose([
+                transforms.RandomAdjustSharpness(sharpness_factor=1.5, p=0.5),
+                transforms.RandomApply([transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1))], p=0.5),
+                transforms.RandomResizedCrop(size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)),
+                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.5),
+            ])
+        else:
+            self.transform = transforms.Compose([
+                transforms.ToTensor(),
+            ])
+
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
+
+    def __getitem__(self, idx):
+        image = self._load_raw_image(self._raw_idx[idx])
+        assert isinstance(image, np.ndarray)
+        assert list(image.shape) == self.image_shape
+        assert image.dtype == np.uint8
+        if self._xflip[idx]:
+            assert image.ndim == 3 # CHW
+            image = image[:, :, ::-1]
+        image = torch.tensor(image, dtype=torch.float32)
+        # Normalize to 0-1
+        image = image / 255.0
+
+        # Apply augmentations if enabled
+        if hasattr(self, 'transform'):
+            image = self.transform(image)
+
+        return image, self.get_label(idx)
 
     @staticmethod
     def _file_ext(fname):
@@ -294,7 +328,7 @@ class CombinedDataset(torch.utils.data.Dataset):
                 dataset_path = os.path.join(datasets_dir, filename)
                 
                 # Create ImageFolderDataset for this zip file
-                base_dataset = ImageFolderDataset(dataset_path, use_labels=True)
+                base_dataset = ImageFolderDataset(dataset_path, use_labels=True, augment=True)
                 
                 # Wrap in PairwiseImageDataset
                 pairwise_dataset = PairwiseImageDataset(
