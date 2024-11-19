@@ -56,6 +56,10 @@ class Dataset(torch.utils.data.Dataset):
             self._raw_idx = np.tile(self._raw_idx, 2)
             self._xflip = np.concatenate([self._xflip, np.ones_like(self._xflip)])
 
+    def _file_ext(self, path):
+        """Returns the lowercase file extension of the given path."""
+        return os.path.splitext(path)[1].lower()
+
     def _get_raw_labels(self):
         if self._raw_labels is None:
             self._raw_labels = self._load_raw_labels() if self._use_labels else None
@@ -70,13 +74,13 @@ class Dataset(torch.utils.data.Dataset):
             self._raw_labels_std = self._raw_labels.std(0)
         return self._raw_labels
 
-    def close(self): # to be overridden by subclass
+    def close(self):  # to be overridden by subclass
         pass
 
-    def _load_raw_image(self, raw_idx): # to be overridden by subclass
+    def _load_raw_image(self, raw_idx):  # to be overridden by subclass
         raise NotImplementedError
 
-    def _load_raw_labels(self): # to be overridden by subclass
+    def _load_raw_labels(self):  # to be overridden by subclass
         raise NotImplementedError
 
     def __getstate__(self):
@@ -97,72 +101,26 @@ class Dataset(torch.utils.data.Dataset):
         assert list(image.shape) == self.image_shape
         assert image.dtype == np.uint8
         if self._xflip[idx]:
-            assert image.ndim == 3 # CHW
+            assert image.ndim == 3  # CHW
             image = image[:, :, ::-1]
-        image = torch.tensor(image, dtype=torch.float32)
-        # Normalize to 0-1
-        image = image / 255.0
+
+        # Convert NumPy array to PIL Image
+        if image.shape[0] == 1:
+            pil_mode = 'L'  # Grayscale
+            image = image.squeeze(0)  # Remove channel dimension
+        else:
+            pil_mode = 'RGB'
+            image = image.transpose(1, 2, 0)  # CHW to HWC
+
+        pil_image = PIL.Image.fromarray(image, mode=pil_mode)
+
+        # Apply transformations
+        if hasattr(self, 'transform') and self.transform is not None:
+            image = self.transform(pil_image)
+        else:
+            image = transforms.ToTensor()(pil_image)
+
         return image, self.get_label(idx)
-
-    def get_label(self, idx):
-        label = self._get_raw_labels()[self._raw_idx[idx]]
-        if label.dtype == np.int64:
-            onehot = np.zeros(self.label_shape, dtype=np.float32)
-            onehot[label] = 1
-            label = onehot
-        return torch.tensor(label, dtype=torch.float32)
-
-    def get_details(self, idx):
-        d = dnnlib.EasyDict()
-        d.raw_idx = int(self._raw_idx[idx])
-        d.xflip = (int(self._xflip[idx]) != 0)
-        d.raw_label = self._get_raw_labels()[d.raw_idx].copy()
-        return d
-
-    def get_label_std(self):
-        return self._raw_labels_std
-
-    @property
-    def name(self):
-        return self._name
-
-    @property
-    def image_shape(self):
-        return list(self._raw_shape[1:])
-
-    @property
-    def num_channels(self):
-        assert len(self.image_shape) == 3 # CHW
-        return self.image_shape[0]
-
-    @property
-    def resolution(self):
-        assert len(self.image_shape) == 3 # CHW
-        assert self.image_shape[1] == self.image_shape[2]
-        return self.image_shape[1]
-
-    @property
-    def label_shape(self):
-        if self._label_shape is None:
-            raw_labels = self._get_raw_labels()
-            if raw_labels.dtype == np.int64:
-                self._label_shape = [int(np.max(raw_labels)) + 1]
-            else:
-                self._label_shape = raw_labels.shape[1:]
-        return list(self._label_shape)
-
-    @property
-    def label_dim(self):
-        assert len(self.label_shape) == 1
-        return self.label_shape[0]
-
-    @property
-    def has_labels(self):
-        return any(x != 0 for x in self.label_shape)
-
-    @property
-    def has_onehot_labels(self):
-        return self._get_raw_labels().dtype == np.int64
 
 #----------------------------------------------------------------------------
 
@@ -178,7 +136,11 @@ class ImageFolderDataset(Dataset):
 
         if os.path.isdir(self._path):
             self._type = 'dir'
-            self._all_fnames = {os.path.relpath(os.path.join(root, fname), start=self._path) for root, _dirs, files in os.walk(self._path) for fname in files}
+            self._all_fnames = {
+                os.path.relpath(os.path.join(root, fname), start=self._path)
+                for root, _dirs, files in os.walk(self._path)
+                for fname in files
+            }
         elif self._file_ext(self._path) == '.zip':
             self._type = 'zip'
             self._all_fnames = set(self._get_zipfile().namelist())
@@ -186,7 +148,9 @@ class ImageFolderDataset(Dataset):
             raise IOError('Path must point to a directory or zip')
 
         PIL.Image.init()
-        self._image_fnames = sorted(fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION)
+        self._image_fnames = sorted(
+            fname for fname in self._all_fnames if self._file_ext(fname) in PIL.Image.EXTENSION
+        )
         if len(self._image_fnames) == 0:
             raise IOError('No image files found in the specified path')
 
@@ -201,62 +165,28 @@ class ImageFolderDataset(Dataset):
             self.transform = transforms.Compose([
                 transforms.RandomAdjustSharpness(sharpness_factor=1.5, p=0.5),
                 transforms.RandomApply([transforms.RandomRotation(degrees=(0, 0))], p=0.0),  # No rotation
-                transforms.RandomApply([transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1))], p=0.5),
-                transforms.RandomHorizontalFlip(p=0.0),  # Disabled as per requirement
-                AddGaussianNoise(mean=0., std=0.02),
-                ElasticTransform(alpha=1, sigma=50),  # Optional: Implement if feasible
-                transforms.RandomResizedCrop(size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)),
+                transforms.RandomApply(
+                    [transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1))],
+                    p=0.5
+                ),
+                # No RandomHorizontalFlip as per requirement
+                transforms.RandomResizedCrop(
+                    size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)
+                ),
                 transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.5),
+                transforms.ToTensor(),  # Convert PIL Image to Tensor at the end
+                AddGaussianNoise(mean=0., std=0.02),
+                ElasticTransform(alpha=1, sigma=50),  # Ensure this is tensor-compatible
             ])
         else:
             self.transform = transforms.Compose([
                 transforms.ToTensor(),
             ])
 
-    def __getitem__(self, idx):
-        image = self._load_raw_image(self._raw_idx[idx])
-        assert isinstance(image, np.ndarray)
-        assert list(image.shape) == self.image_shape
-        assert image.dtype == np.uint8
-        if self._xflip[idx]:
-            assert image.ndim == 3 # CHW
-            image = image[:, :, ::-1]
-        image = torch.tensor(image, dtype=torch.float32)
-        # Normalize to 0-1
-        image = image / 255.0
-
-        # Apply augmentations if enabled
-        if hasattr(self, 'transform'):
-            image = self.transform(image)
-
-        return image, self.get_label(idx)
-    
-    @staticmethod
-    def _file_ext(fname):
-        return os.path.splitext(fname)[1].lower()
-
     def _get_zipfile(self):
-        assert self._type == 'zip'
         if self._zipfile is None:
             self._zipfile = zipfile.ZipFile(self._path)
         return self._zipfile
-
-    def _open_file(self, fname):
-        if self._type == 'dir':
-            return open(os.path.join(self._path, fname), 'rb')
-        if self._type == 'zip':
-            return self._get_zipfile().open(fname, 'r')
-        return None
-
-    def close(self):
-        try:
-            if self._zipfile is not None:
-                self._zipfile.close()
-        finally:
-            self._zipfile = None
-
-    def __getstate__(self):
-        return dict(super().__getstate__(), _zipfile=None)
 
     def _load_raw_image(self, raw_idx):
         fname = self._image_fnames[raw_idx]
@@ -266,9 +196,8 @@ class ImageFolderDataset(Dataset):
             else:
                 image = np.array(PIL.Image.open(f))
         if image.ndim == 2:
-            image = image[:, :, np.newaxis] # HW => HWC, doesn't work for gray cars too, original code
-            #image = np.stack((image,)*3, axis=-1) # HW => HWC, but C is not 1, but 3 - for gray images, my older solution
-        image = image.transpose(2, 0, 1) # HWC => CHW
+            image = image[:, :, np.newaxis]  # HW => HWC
+        image = image.transpose(2, 0, 1)  # HWC => CHW
         return image
 
     def _load_raw_labels(self):
@@ -284,7 +213,9 @@ class ImageFolderDataset(Dataset):
         labels = np.array(labels)
         labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
         return labels
-    
+
+#----------------------------------------------------------------------------
+
 class PairwiseImageDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, size=None):
         """Create a pairwise dataset from a base ImageFolderDataset.
@@ -311,13 +242,12 @@ class PairwiseImageDataset(torch.utils.data.Dataset):
         img_i, cam_i = self.dataset[i]
         img_j, cam_j = self.dataset[j]
         
-
         # Return (image_i, camera_diff) as input, image_j as target
-        # Did not work
-        # return (img_i, cam_diff), img_j
+        # Adjust based on your model's requirements
         return (img_i, cam_i, cam_j), img_j
 
 #----------------------------------------------------------------------------
+
 class CombinedDataset(torch.utils.data.Dataset):
     def __init__(self, datasets_dir, pairwise_dataset_size=None, augment=False):
         """Create a combined dataset from multiple zip datasets in a directory.
@@ -335,7 +265,7 @@ class CombinedDataset(torch.utils.data.Dataset):
                 dataset_path = os.path.join(datasets_dir, filename)
                 
                 # Create ImageFolderDataset for this zip file with augmentation
-                base_dataset = ImageFolderDataset(dataset_path, use_labels=True, augment=augment)
+                base_dataset = ImageFolderDataset(dataset_path, resolution=None, augment=augment)
                 
                 # Wrap in PairwiseImageDataset
                 pairwise_dataset = PairwiseImageDataset(
