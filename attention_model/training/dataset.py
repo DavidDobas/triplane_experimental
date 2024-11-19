@@ -313,7 +313,7 @@ class PairwiseImageDataset(torch.utils.data.Dataset):
 
 #----------------------------------------------------------------------------
 class CombinedDataset(torch.utils.data.Dataset):
-    def __init__(self, datasets_dir, pairwise_dataset_size=None):
+    def __init__(self, datasets_dir, pairwise_dataset_size=None, augment=False):
         """Create a combined dataset from multiple zip datasets in a directory.
         
         Args:
