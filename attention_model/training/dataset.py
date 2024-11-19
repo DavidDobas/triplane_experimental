@@ -231,6 +231,27 @@ class ImageFolderDataset(Dataset):
 
         return image, self.get_label(idx)
     
+    @staticmethod
+    def _file_ext(fname):
+        return os.path.splitext(fname)[1].lower()
+    def _get_zipfile(self):
+        assert self._type == 'zip'
+        if self._zipfile is None:
+            self._zipfile = zipfile.ZipFile(self._path)
+        return self._zipfile
+    def _open_file(self, fname):
+        if self._type == 'dir':
+            return open(os.path.join(self._path, fname), 'rb')
+        if self._type == 'zip':
+            return self._get_zipfile().open(fname, 'r')
+        return None
+    def close(self):
+        try:
+            if self._zipfile is not None:
+                self._zipfile.close()
+        finally:
+            self._zipfile = None
+    
 class PairwiseImageDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, size=None):
         """Create a pairwise dataset from a base ImageFolderDataset.
