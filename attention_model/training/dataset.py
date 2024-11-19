@@ -18,6 +18,10 @@ import json
 import torch
 import dnnlib
 import random
+import torchvision.transforms as transforms
+from torchvision.transforms import functional as TF
+import random
+from .augmentations import AddGaussianNoise, ElasticTransform
 try:
     import pyspng
 except ImportError:
@@ -166,6 +170,7 @@ class ImageFolderDataset(Dataset):
     def __init__(self,
         path,                   # Path to directory or zip.
         resolution      = None, # Ensure specific resolution, None = highest available.
+        augment         = False, # Enable data augmentation
         **super_kwargs,         # Additional arguments for the Dataset base class.
     ):
         self._path = path
@@ -191,59 +196,40 @@ class ImageFolderDataset(Dataset):
             raise IOError('Image files do not match the specified resolution')
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
 
-    @staticmethod
-    def _file_ext(fname):
-        return os.path.splitext(fname)[1].lower()
+        # Define augmentation transforms
+        if augment:
+            self.transform = transforms.Compose([
+                transforms.RandomAdjustSharpness(sharpness_factor=1.5, p=0.5),
+                transforms.RandomApply([transforms.RandomRotation(degrees=(0, 0))], p=0.0),  # No rotation
+                transforms.RandomApply([transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1))], p=0.5),
+                transforms.RandomHorizontalFlip(p=0.0),  # Disabled as per requirement
+                AddGaussianNoise(mean=0., std=0.02),
+                ElasticTransform(alpha=1, sigma=50),  # Optional: Implement if feasible
+                transforms.RandomResizedCrop(size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)),
+                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.5),
+            ])
+        else:
+            self.transform = transforms.Compose([
+                transforms.ToTensor(),
+            ])
 
-    def _get_zipfile(self):
-        assert self._type == 'zip'
-        if self._zipfile is None:
-            self._zipfile = zipfile.ZipFile(self._path)
-        return self._zipfile
+    def __getitem__(self, idx):
+        image = self._load_raw_image(self._raw_idx[idx])
+        assert isinstance(image, np.ndarray)
+        assert list(image.shape) == self.image_shape
+        assert image.dtype == np.uint8
+        if self._xflip[idx]:
+            assert image.ndim == 3 # CHW
+            image = image[:, :, ::-1]
+        image = torch.tensor(image, dtype=torch.float32)
+        # Normalize to 0-1
+        image = image / 255.0
 
-    def _open_file(self, fname):
-        if self._type == 'dir':
-            return open(os.path.join(self._path, fname), 'rb')
-        if self._type == 'zip':
-            return self._get_zipfile().open(fname, 'r')
-        return None
+        # Apply augmentations if enabled
+        if hasattr(self, 'transform'):
+            image = self.transform(image)
 
-    def close(self):
-        try:
-            if self._zipfile is not None:
-                self._zipfile.close()
-        finally:
-            self._zipfile = None
-
-    def __getstate__(self):
-        return dict(super().__getstate__(), _zipfile=None)
-
-    def _load_raw_image(self, raw_idx):
-        fname = self._image_fnames[raw_idx]
-        with self._open_file(fname) as f:
-            if pyspng is not None and self._file_ext(fname) == '.png':
-                image = pyspng.load(f.read(), format='RGB')
-            else:
-                image = np.array(PIL.Image.open(f))
-        if image.ndim == 2:
-            image = image[:, :, np.newaxis] # HW => HWC, doesn't work for gray cars too, original code
-            #image = np.stack((image,)*3, axis=-1) # HW => HWC, but C is not 1, but 3 - for gray images, my older solution
-        image = image.transpose(2, 0, 1) # HWC => CHW
-        return image
-
-    def _load_raw_labels(self):
-        fname = 'dataset.json'
-        if fname not in self._all_fnames:
-            return None
-        with self._open_file(fname) as f:
-            labels = json.load(f)['labels']
-        if labels is None:
-            return None
-        labels = dict(labels)
-        labels = [labels[fname.replace('\\', '/')] for fname in self._image_fnames]
-        labels = np.array(labels)
-        labels = labels.astype({1: np.int64, 2: np.float32}[labels.ndim])
-        return labels
+        return image, self.get_label(idx)
     
 class PairwiseImageDataset(torch.utils.data.Dataset):
     def __init__(self, dataset, size=None):
@@ -279,12 +265,13 @@ class PairwiseImageDataset(torch.utils.data.Dataset):
 
 #----------------------------------------------------------------------------
 class CombinedDataset(torch.utils.data.Dataset):
-    def __init__(self, datasets_dir, pairwise_dataset_size=None):
+    def __init__(self, datasets_dir, pairwise_dataset_size=None, augment=False):
         """Create a combined dataset from multiple zip datasets in a directory.
         
         Args:
             datasets_dir: Directory containing zip datasets
             pairwise_dataset_size: If not None, sample this many pairs from each dataset
+            augment: Enable data augmentation
         """
         self.datasets = []
         
@@ -293,8 +280,8 @@ class CombinedDataset(torch.utils.data.Dataset):
             if filename.endswith('.zip'):
                 dataset_path = os.path.join(datasets_dir, filename)
                 
-                # Create ImageFolderDataset for this zip file
-                base_dataset = ImageFolderDataset(dataset_path, use_labels=True)
+                # Create ImageFolderDataset for this zip file with augmentation
+                base_dataset = ImageFolderDataset(dataset_path, use_labels=True, augment=augment)
                 
                 # Wrap in PairwiseImageDataset
                 pairwise_dataset = PairwiseImageDataset(
