@@ -195,10 +195,9 @@ class ImageFolderDataset(Dataset):
         
         if augment:
             self.transform = transforms.Compose([
-                transforms.RandomAdjustSharpness(sharpness_factor=1.5, p=0.5),
-                transforms.RandomApply([transforms.RandomAffine(degrees=0, translate=(0.1, 0.1), scale=(0.9, 1.1))], p=0.5),
+                transforms.RandomAdjustSharpness(sharpness_factor=1.5, p=0.2),
+                transforms.RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3), value=0, inplace=True),
                 transforms.RandomResizedCrop(size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)),
-                transforms.RandomApply([transforms.GaussianBlur(kernel_size=3)], p=0.5),
             ])
         else:
             self.transform = transforms.Compose([
