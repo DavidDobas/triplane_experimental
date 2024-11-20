@@ -196,7 +196,7 @@ class ImageFolderDataset(Dataset):
         if augment:
             self.transform = transforms.Compose([
                 transforms.RandomAdjustSharpness(sharpness_factor=1.5, p=0.2),
-                transforms.RandomErasing(p=0.5, scale=(0.02, 0.33), ratio=(0.3, 3.3), value=0, inplace=True),
+                transforms.RandomErasing(p=0.5, scale=(0.02, 0.1), ratio=(0.3, 3.3), value=0, inplace=True),
                 transforms.RandomResizedCrop(size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)),
             ])
         else:
@@ -327,7 +327,7 @@ class CombinedDataset(torch.utils.data.Dataset):
                 dataset_path = os.path.join(datasets_dir, filename)
                 
                 # Create ImageFolderDataset for this zip file
-                base_dataset = ImageFolderDataset(dataset_path, use_labels=True, augment=True)
+                base_dataset = ImageFolderDataset(dataset_path, use_labels=True, augment=augment)
                 
                 # Wrap in PairwiseImageDataset
                 pairwise_dataset = PairwiseImageDataset(
