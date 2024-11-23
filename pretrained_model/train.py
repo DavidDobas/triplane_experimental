@@ -36,12 +36,21 @@ class DecoderBlock(nn.Module):
         )
 
     def forward(self, x, skip):
+        print(f"  Before upsampling: {x.shape}")
         x = self.up(x)
+        print(f"  After upsampling: {x.shape}")
+
         # Ensure spatial dimensions match for concatenation
         if x.shape != skip.shape:
             x = nn.functional.interpolate(x, size=skip.shape[2:], mode='bilinear', align_corners=True)
+            print(f"  After interpolation: {x.shape}")
+
+        print(f"  Skip connection shape: {skip.shape}")
         x = torch.cat([x, skip], dim=1)
+        print(f"  After concatenation: {x.shape}")
+
         x = self.conv(x)
+        print(f"  After convolution: {x.shape}")
         return x
 
 
@@ -70,10 +79,12 @@ class AttentionGate(nn.Module):
         # g: gating signal (from decoder)
         # x: skip connection feature map (from encoder)
 
+        print(f"  AttentionGate - Before Processing: g shape: {g.shape}, x shape: {x.shape}")
         g1 = self.W_g(g)
         x1 = self.W_x(x)
         psi = self.relu(g1 + x1)
         psi = self.psi(psi)
+        print(f"  AttentionGate - Psi shape: {psi.shape}")
         return x * psi
 
 
@@ -117,7 +128,6 @@ class UNetWithAttention(nn.Module):
                 param.requires_grad = False
         
         # Define the channels from EfficientNet for skip connections
-        # EfficientNet-B0's skip connections
         self.encoder_out_channels = [16, 24, 40, 80, 112, 1280]  # Aligned with skip_layers
         self.skip_layers = [1, 3, 5, 7, 13, 16]  # Indices in self.encoder.features
         
@@ -148,10 +158,9 @@ class UNetWithAttention(nn.Module):
         
         # Final Convolution Layer to Obtain Single-Channel Output
         self.final_conv = nn.Conv2d(current_channels, 1, kernel_size=1)
-
+    
     def forward(self, x, c_in, c_out):
         N, C, H, W = x.shape
-        # Remove concatenation of camera parameters at input.
         # Pass x to encoder without any additional channels.
 
         # 1. Encoder Forward Pass
@@ -169,14 +178,21 @@ class UNetWithAttention(nn.Module):
         camera_proj = camera_proj.expand(-1, -1, x.size(2), x.size(3))  # Shape: [N, 1280, H', W']
         # Integrate camera information with encoder features
         x = x + camera_proj
+        print(f"After camera integration, x shape: {x.shape}")  # Debugging
 
         # 3. Decoder Path with Attention
         for idx, decoder_block in enumerate(self.decoder_blocks):
             skip_connection = encoder_features[-(idx + 2)]  # Get corresponding skip connection
-            x = decoder_block(x, skip_connection)         # Handle upsampling and concatenation
+            
+            # Debugging: Print channel numbers
+            print(f"Decoder Block {idx+1}:")
+            print(f"  Input Channels (before upsampling): {x.shape[1]}")
+            print(f"  Skip Connection Channels: {skip_connection.shape[1]}")
+            
+            x = decoder_block(x, skip_connection)
         
         # 4. Final Convolution Layer
-        x = self.final_conv(x)  # Shape: [N, 1, 128, 128]
+        x = self.final_conv(x)  # Shape: [N, 1, H, W]
         return x
 
 
@@ -187,7 +203,7 @@ class Model(TrainableModule):
         self.unet = UNetWithAttention(
             num_narrowings=num_narrowings,
             c_dim=c_dim,
-            use_camera_in=args.unet_use_camera_in,  # This flag is now redundant but kept for compatibility
+            use_camera_in=args.unet_use_camera_in,
             pretrained=True  # Use pretrained EfficientNet from torchvision
         )
     
@@ -292,7 +308,7 @@ if __name__ == '__main__':
         epochs=10,
         lr=0.0002,
         cosine_schedule=True,
-        device='cpu',
+        device='cpu',  # Change to 'cuda' if available
         use_sigmoid=True,
         augment=True
     )
