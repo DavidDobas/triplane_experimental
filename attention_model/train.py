@@ -48,7 +48,7 @@ class Args:
         self.__dict__.update(kwargs)
 
 class UNetWithAttention(nn.Module):
-    def __init__(self, num_narrowings=3, c_dim=25, channels_first=128, use_camera_in=True, dropout=0.1):
+    def __init__(self, num_narrowings=3, c_dim=25, channels_first=128, use_camera_in=True, dropout=0.1, input_dropout=0.1):
         super().__init__()
         
         self.c_dim = c_dim
@@ -58,6 +58,9 @@ class UNetWithAttention(nn.Module):
         else:
             self.init_conv = nn.Conv2d(1 + c_dim, channels_first, kernel_size=3, padding=1)
         
+        # Dropout layer for input
+        self.input_dropout = nn.Dropout(p=input_dropout)
+
         # Encoder blocks
         self.encoder_blocks = nn.ModuleList()
         current_channels = channels_first
@@ -105,6 +108,8 @@ class UNetWithAttention(nn.Module):
         else:
             c_out_expanded = c_out.unsqueeze(2).unsqueeze(3).expand(-1, -1, H, W)
             x = torch.cat([x, c_out_expanded], dim=1)
+
+        x = self.input_dropout(x)
         
         x = self.init_conv(x)
         encoder_outputs = []
@@ -130,7 +135,7 @@ class Model(TrainableModule):
     def __init__(self, c_dim: int = 25, num_narrowings: int = 3, args: Args = None):
         super().__init__()
         # Custom
-        self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in, dropout=args.unet_dropout)
+        self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in, dropout=args.unet_dropout, input_dropout=args.unet_input_dropout)
     def forward(self, images, c_i, c_j):
         images = self.unet(images, c_i, c_j)
         if args.use_sigmoid:
@@ -229,5 +234,6 @@ if __name__ == '__main__':
                 device='cuda',
                 use_sigmoid=True,
                 augment=False,
-                unet_dropout=0.1)
+                unet_dropout=0.1,
+                unet_input_dropout=0.5)
     main(args)
