@@ -48,7 +48,7 @@ class Args:
         self.__dict__.update(kwargs)
 
 class UNetWithAttention(nn.Module):
-    def __init__(self, num_narrowings=3, c_dim=25, channels_first=128, use_camera_in=True):
+    def __init__(self, num_narrowings=3, c_dim=25, channels_first=128, use_camera_in=True, dropout=0.1):
         super().__init__()
         
         self.c_dim = c_dim
@@ -69,7 +69,8 @@ class UNetWithAttention(nn.Module):
                 nn.ReLU(inplace=True),
                 nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1),
                 nn.BatchNorm2d(out_channels),
-                nn.ReLU(inplace=True)
+                nn.ReLU(inplace=True),
+                nn.Dropout(p=dropout)
             ))
             current_channels = out_channels
         
@@ -108,7 +109,7 @@ class UNetWithAttention(nn.Module):
         x = self.init_conv(x)
         encoder_outputs = []
         
-        # Encoder path
+        # Encoder path with sparsity
         for idx, block in enumerate(self.encoder_blocks):
             encoder_outputs.append(x)
             x = block(x)
@@ -129,7 +130,7 @@ class Model(TrainableModule):
     def __init__(self, c_dim: int = 25, num_narrowings: int = 3, args: Args = None):
         super().__init__()
         # Custom
-        self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in)
+        self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in, dropout_level=args.unet_dropout)
     def forward(self, images, c_i, c_j):
         images = self.unet(images, c_i, c_j)
         if args.use_sigmoid:
@@ -227,5 +228,6 @@ if __name__ == '__main__':
                 cosine_schedule=True,
                 device='cuda',
                 use_sigmoid=True,
-                augment=True)
+                augment=False,
+                unet_dropout=0.1)
     main(args)
