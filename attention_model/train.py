@@ -130,7 +130,7 @@ class Model(TrainableModule):
     def __init__(self, c_dim: int = 25, num_narrowings: int = 3, args: Args = None):
         super().__init__()
         # Custom
-        self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in, dropout_level=args.unet_dropout)
+        self.unet = UNetWithAttention(num_narrowings=num_narrowings, c_dim=c_dim, channels_first=args.unet_channels_first, use_camera_in=args.unet_use_camera_in, dropout=args.unet_dropout)
     def forward(self, images, c_i, c_j):
         images = self.unet(images, c_i, c_j)
         if args.use_sigmoid:
