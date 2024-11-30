@@ -2,7 +2,7 @@ import os
 import re
 import datetime
 import json
-
+import argparse
 import torch
 import torchmetrics
 import torchvision
@@ -150,10 +150,11 @@ def main(args):
 
     # Create logdir with timestamp
     timestamp = datetime.datetime.now()
-    args.logdir = f"logdir_{timestamp.strftime('%Y%m%d')}_{timestamp.strftime('%H%M%S')}"
+    logdir = os.path.join(args.logdir, f"logdir_{timestamp.strftime('%Y%m%d')}_{timestamp.strftime('%H%M%S')}")
     # Save args to args.json in logdir
     os.makedirs(args.logdir, exist_ok=True)
-    with open(os.path.join(args.logdir, 'args.json'), 'w') as f:
+    os.makedirs(logdir, exist_ok=True)
+    with open(os.path.join(logdir, 'args.json'), 'w') as f:
         json.dump(vars(args), f, indent=4)
 
     # dataset_images = ImageFolderDataset(path=args.dataset, use_labels=True, max_size=None, xflip=False)
@@ -193,47 +194,93 @@ def main(args):
         schedule=schedule,
         loss=loss,
         metrics=[torchmetrics.image.PeakSignalNoiseRatio()],
-        logdir=args.logdir,
+        logdir=logdir,
         device=args.device
     )
 
-    model.fit(dataloader=train, epochs=args.epochs, dev=dev)
+    logs = model.fit(dataloader=train, epochs=args.epochs, dev=dev)
+    # Save training logs to logrid as logs.txt
+    logs_path = os.path.join(logdir, 'logs.txt')
+    with open(logs_path, 'w') as f:
+        f.write(str(logs))
     
     # Save the first image from the dataset to logdir
     sample = next(iter(dev))[0]
 
     first_image = sample[0][1,:,:,:]  # Get the first image in the batch
-    first_image_path = os.path.join(args.logdir, 'first_image.png')
+    first_image_path = os.path.join(logdir, 'first_image.png')
     torchvision.utils.save_image(first_image, first_image_path)
 
     # Make a prediction on the first image and its camera
     model.eval()
     with torch.no_grad():
         predictions = model.predict(dev, as_numpy=False)
-    prediction_path = os.path.join(args.logdir, 'prediction.png')
-    torchvision.utils.save_image(predictions[0][0:8], prediction_path)
-    true_path = os.path.join(args.logdir, 'true.png')
+    prediction_path = os.path.join(logdir, 'prediction.png')
+    torchvision.utils.save_image(predictions[0:8], prediction_path)
+    true_path = os.path.join(logdir, 'true.png')
     torchvision.utils.save_image(sample[0][0:8], true_path)
 
     # Save the model
-    model_path = os.path.join(args.logdir, 'model.pt')
-    torch.save(model, model_path)
+    # model_path = os.path.join(args.logdir, 'model.pt')
+    # torch.save(model, model_path)
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Train UNet with Attention')
+    parser.add_argument('--num_narrowings', type=int, default=6,
+                        help='Number of narrowing layers in UNet')
+    parser.add_argument('--loss', type=str, default='mse',
+                        choices=['mse', 'ssim', 'mse_ssim', 'perceptual', 'mse_perceptual', 'l1'],
+                        help='Loss function to use')
+    parser.add_argument('--unet_channels_first', type=int, default=128,
+                        help='Number of channels in first UNet layer')
+    parser.add_argument('--unet_use_camera_in', type=bool, default=False,
+                        help='Use camera input in UNet')
+    parser.add_argument('--dataset', type=str, default='datasets/chest_separate',
+                        help='Path to training dataset')
+    parser.add_argument('--dataset_dev', type=str, default='datasets/chest_separate_dev',
+                        help='Path to validation dataset')
+    parser.add_argument('--pairwise_dataset_size', type=int, default=None,
+                        help='Size of pairwise dataset')
+    parser.add_argument('--batch_size', type=int, default=8,
+                        help='Batch size for training')
+    parser.add_argument('--epochs', type=int, default=10,
+                        help='Number of epochs to train')
+    parser.add_argument('--lr', type=float, default=0.0002,
+                        help='Learning rate')
+    parser.add_argument('--cosine_schedule', type=bool, default=True,
+                        help='Use cosine learning rate schedule')
+    parser.add_argument('--device', type=str, default='cuda',
+                        help='Device to use for training')
+    parser.add_argument('--use_sigmoid', type=bool, default=True,
+                        help='Use sigmoid activation')
+    parser.add_argument('--augment', type=bool, default=False,
+                        help='Use data augmentation')
+    parser.add_argument('--unet_dropout', type=float, default=0,
+                        help='Dropout rate in UNet')
+    parser.add_argument('--unet_input_dropout', type=float, default=0,
+                        help='Input dropout rate in UNet')
+    parser.add_argument('--logdir', type=str, default='logs',
+                        help='Directory for saving logs')
+                        
+    args = parser.parse_args()
+    return Args(**vars(args))
 
 if __name__ == '__main__':
-    args = Args(num_narrowings=6,
-                loss='mse',
-                unet_channels_first=128,
-                unet_use_camera_in=False,
-                dataset='datasets/chest_separate',
-                dataset_dev='datasets/chest_separate_dev',
-                pairwise_dataset_size=None,
-                batch_size=16,
-                epochs=10,
-                lr=0.0002,
-                cosine_schedule=True,
-                device='cuda',
-                use_sigmoid=True,
-                augment=False,
-                unet_dropout=0.1,
-                unet_input_dropout=0.5)
+    # args = Args(num_narrowings=6,
+    #             loss='mse',
+    #             unet_channels_first=128,
+    #             unet_use_camera_in=False,
+    #             dataset='datasets/chest_separate',
+    #             dataset_dev='datasets/chest_separate_dev',
+    #             pairwise_dataset_size=None,
+    #             batch_size=16,
+    #             epochs=10,
+    #             lr=0.0002,
+    #             cosine_schedule=True,
+    #             device='cuda',
+    #             use_sigmoid=True,
+    #             augment=False,
+    #             unet_dropout=0.1,
+    #             unet_input_dropout=0.5)
+    args = parse_args()
     main(args)

@@ -199,10 +199,6 @@ class ImageFolderDataset(Dataset):
                 transforms.RandomErasing(p=0.5, scale=(0.02, 0.1), ratio=(0.3, 3.3), value=0, inplace=True),
                 transforms.RandomResizedCrop(size=raw_shape[2:], scale=(0.9, 1.0), ratio=(1.0, 1.0)),
             ])
-        else:
-            self.transform = transforms.Compose([
-                transforms.ToTensor(),
-            ])
 
         super().__init__(name=name, raw_shape=raw_shape, **super_kwargs)
 
